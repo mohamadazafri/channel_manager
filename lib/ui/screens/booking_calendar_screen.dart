@@ -20,6 +20,7 @@ class BookingCalendarScreen extends StatefulWidget {
 class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
   final GlobalKey _todaySectionKey = GlobalKey();
   final GlobalKey _upcomingSectionKey = GlobalKey();
+  final GlobalKey _roomsSectionKey = GlobalKey();
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   List<Booking> _filteredBookings = [];
@@ -27,12 +28,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
   String? _selectedRoomFilter;
   DateTimeRange? _dateRangeFilter;
   bool _isFilterActive = false;
-
-  List<Booking> _originalBookings = []; // Stores the unfiltered bookings
-  List<Booking> _roomFilteredBookings = []; // Stores bookings after room filter
-  List<Booking> _dateFilteredBookings = []; // Stores bookings after date filter
-  List<Booking> _searchFilteredBookings = []; // Final filtered list after search
-
+  List<DateTime>? _blackoutDates = [];
   late DateRangePickerController _dateRangePickerController;
   PickerDateRange? _selectedRange;
   List<Booking> _bookings = [];
@@ -160,6 +156,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                 setState(() {
                   _bookings = state.bookings;
                   _updateRoomBookings();
+                  _updateBlackoutDates();
                 });
               }
             },
@@ -306,10 +303,11 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                   ),
                   minDate: DateTime.now(), // Add this line to prevent selecting past dates
                   monthViewSettings: const DateRangePickerMonthViewSettings(
+                    // blackoutDates: _blackoutDates,
                     firstDayOfWeek: 1,
                     showTrailingAndLeadingDates: false,
                     dayFormat: 'EEE',
-                    viewHeaderStyle: DateRangePickerViewHeaderStyle(
+                    viewHeaderStyle: const DateRangePickerViewHeaderStyle(
                       textStyle: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -340,7 +338,10 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                       border: Border.all(color: Colors.blue, width: 1),
                       shape: BoxShape.circle,
                     ),
+                    // blackoutDateTextStyle:
+                    //     TextStyle(color: Colors.red[300], decoration: TextDecoration.lineThrough, decorationColor: Colors.red[300]),
                   ),
+
                   rangeSelectionColor: Colors.blue.shade100.withOpacity(0.4),
                   selectionColor: Colors.blue[600],
                   startRangeSelectionColor: Colors.blue[600],
@@ -377,103 +378,163 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                 ),
               ),
 
-              const SizedBox(height: 12),
-            ],
-          ),
-        ),
-
-        // Room availability info
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Room Availability',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[800],
-                      ),
-                    ),
-                  ),
-                  if (_selectedRange != null && _selectedRange!.endDate != null)
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      child: Text(
-                        // Replace this line:
-                        // '${_selectedRange!.endDate!.difference(_selectedRange!.startDate!).inDays + 1} nights',
-
-                        // With this improved calculation:
-                        '${_getNightsCount()} ${_getNightsCount() == 1 ? 'night' : 'nights'}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                    ),
-                ],
+              // Visual divider
+              Divider(
+                color: Colors.grey[200],
+                height: 1,
+                thickness: 1,
               ),
-            ),
 
-            // Add date and availability summary
-            if (_selectedRange != null && _selectedRange!.startDate != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12, left: 4, right: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Room Availability header with icon
                     Row(
                       children: [
-                        Icon(Icons.calendar_today, size: 16, color: Colors.blue[600]),
+                        Icon(Icons.hotel, color: Colors.grey[800], size: 20),
                         const SizedBox(width: 8),
                         Text(
-                          _selectedRange!.endDate != null
-                              ? '${DateFormat('MMM dd, yyyy').format(_selectedRange!.startDate!)} - ${DateFormat('MMM dd, yyyy').format(_selectedRange!.endDate!)}'
-                              : DateFormat('MMM dd, yyyy').format(_selectedRange!.startDate!),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
+                          'Room Availability',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue[200]!),
+                          ),
+                          child: Text(
+                            '${_getNightsCount()} ${_getNightsCount() == 1 ? 'night' : 'nights'}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                              color: Colors.blue[700],
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(Icons.hotel_outlined, size: 16, color: Colors.green[600]),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${_roomAvailability.values.where((available) => available).length} of ${_roomAvailability.length} rooms available',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 14,
-                            color: _roomAvailability.values.where((available) => available).isEmpty ? Colors.red[700] : Colors.green[700],
-                          ),
+
+                    const SizedBox(height: 16),
+
+                    // Date range display with calendar icon
+                    if (_selectedRange != null && _selectedRange!.startDate != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey[200]!),
                         ),
-                      ],
+                        child: Row(
+                          children: [
+                            Icon(Icons.calendar_today, size: 18, color: Colors.grey[800]),
+                            const SizedBox(width: 8),
+                            Text(
+                              _selectedRange!.endDate != null
+                                  ? '${DateFormat('MMM dd, yyyy').format(_selectedRange!.startDate!)} - ${DateFormat('MMM dd, yyyy').format(_selectedRange!.endDate!)}'
+                                  : DateFormat('MMM dd, yyyy').format(_selectedRange!.startDate!),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    const SizedBox(height: 12),
+
+                    // Available rooms display with hotel icon - make this stand out more
+                    InkWell(
+                      onTap: () {
+                        // Scroll to the Rooms section
+                        Scrollable.ensureVisible(
+                          _roomsSectionKey.currentContext!,
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(8), // Match container's border radius
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: _getAvailabilityColor(),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: _getAvailabilityBorderColor()),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.meeting_room,
+                              size: 18,
+                              color: _getAvailabilityTextColor(),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${_roomAvailability.values.where((available) => available).length} of ${_roomAvailability.length} rooms available',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                  color: _getAvailabilityTextColor(),
+                                ),
+                              ),
+                            ),
+                            // Add a small icon to indicate this is clickable
+                            Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 16,
+                              color: _getAvailabilityTextColor(),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-          ],
+            ],
+          ),
         ),
 
-        const SizedBox(height: 8),
+        Padding(
+          key: _roomsSectionKey, // Add the key here
+          padding: const EdgeInsets.fromLTRB(4.0, 20.0, 4.0, 16.0),
+          child: Row(
+            children: [
+              Icon(
+                Icons.hotel_outlined,
+                size: 22,
+                color: Colors.grey[800],
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Rooms',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  height: 1,
+                  color: Colors.grey[300],
+                ),
+              ),
+            ],
+          ),
+        ),
 
         // Room availability list
         ...(_rooms.map((room) {
@@ -587,20 +648,39 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                           // Book now button for available rooms
                           if (isAvailable)
                             Padding(
-                              padding: const EdgeInsets.only(top: 16),
+                              padding: const EdgeInsets.all(16),
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   ElevatedButton(
                                     onPressed: () => _navigateToBookingForm(room),
                                     style: ElevatedButton.styleFrom(
-                                      textStyle: TextStyle(color: Colors.blue[600]),
-                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                      // Use a more vibrant blue color
+                                      backgroundColor: Colors.blue[600],
+                                      foregroundColor: Colors.white,
+                                      // Add elevation for depth
+                                      elevation: 2,
+                                      shadowColor: Colors.blue.withOpacity(0.5),
+                                      // Add more generous padding for a larger, more tappable button
+                                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+                                      // Rounded corners that match your app's style
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
-                                    child: const Text('Book Now'),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text(
+                                          'Book Now',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
@@ -751,6 +831,63 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
         }).toList()),
       ],
     );
+  }
+
+  List<DateTime> _getBlackoutDates() {
+    // If we don't have bookings data yet, return empty list
+    if (_bookings.isEmpty) {
+      return [];
+    }
+
+    // Create a map to track room availability for each date
+    // Keys are date strings in format 'yyyy-MM-dd', values are counts of available rooms
+    Map<String, int> dateAvailability = {};
+
+    // Calculate date range to check (today + 1 year)
+    final today = DateTime.now();
+    final oneYearLater = today.add(const Duration(days: 365));
+
+    // Initialize all dates with full availability
+    DateTime currentDay = today;
+    while (currentDay.isBefore(oneYearLater)) {
+      final dateString = DateFormat('yyyy-MM-dd').format(currentDay);
+      dateAvailability[dateString] = _rooms.length; // All rooms available initially
+      currentDay = currentDay.add(const Duration(days: 1));
+    }
+
+    // Update availability based on bookings
+    for (var booking in _bookings) {
+      // Skip past bookings
+      if (booking.checkOut.isBefore(today)) {
+        continue;
+      }
+
+      // Mark room as unavailable for each day of the booking
+      DateTime bookingDay = booking.checkIn;
+
+      // Only count until checkout date (exclusive) since checkout day can be booked by someone else
+      while (bookingDay.isBefore(booking.checkOut)) {
+        final dateString = DateFormat('yyyy-MM-dd').format(bookingDay);
+
+        // If this date is within our date range, update availability
+        if (dateAvailability.containsKey(dateString)) {
+          dateAvailability[dateString] = dateAvailability[dateString]! - 1;
+        }
+
+        bookingDay = bookingDay.add(const Duration(days: 1));
+      }
+    }
+
+    // Collect dates with zero availability (fully booked)
+    List<DateTime> blackoutDates = [];
+    dateAvailability.forEach((dateString, availableRooms) {
+      if (availableRooms <= 0) {
+        // Parse the date string back to DateTime
+        blackoutDates.add(DateFormat('yyyy-MM-dd').parse(dateString));
+      }
+    });
+
+    return blackoutDates;
   }
 
   Widget _buildDetailItem(String label, String value) {
@@ -1218,7 +1355,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
         // Quick navigation buttons - only show if we have any filtered bookings
         if (todayBookings.isNotEmpty || upcomingBookings.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 8.0),
+            padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0), // Added more bottom padding
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -1231,73 +1368,94 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                     offset: const Offset(0, 2),
                   ),
                 ],
+                // Add a subtle border to make it stand out
+                border: Border.all(color: Colors.grey[200]!),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
+                padding: const EdgeInsets.all(10.0), // Slightly more padding
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.today, size: 18),
-                        label: Text(
-                          'Today (${todayBookings.length})',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        onPressed: todayBookings.isEmpty
-                            ? null
-                            : () {
-                                Scrollable.ensureVisible(
-                                  _todaySectionKey.currentContext!,
-                                  duration: const Duration(milliseconds: 500),
-                                  curve: Curves.easeInOut,
-                                );
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal[50],
-                          foregroundColor: Colors.teal[800],
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          textStyle: const TextStyle(fontSize: 14),
-                          // Disable button if no bookings in this section
-                          disabledBackgroundColor: Colors.grey[100],
-                          disabledForegroundColor: Colors.grey[500],
+                    // Add a title to clearly identify this as navigation
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8.0, bottom: 8.0),
+                      child: Text(
+                        "Quick Navigation",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[600],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.event, size: 18),
-                        label: Text(
-                          'Upcoming (${upcomingBookings.length})',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.today, size: 18),
+                            label: Text(
+                              'Today (${todayBookings.length})',
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            onPressed: todayBookings.isEmpty
+                                ? null
+                                : () {
+                                    Scrollable.ensureVisible(
+                                      _todaySectionKey.currentContext!,
+                                      duration: const Duration(milliseconds: 500),
+                                      curve: Curves.easeInOut,
+                                    );
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              // Make the button more distinct
+                              backgroundColor: Colors.teal[100],
+                              foregroundColor: Colors.teal[900],
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              textStyle: const TextStyle(fontSize: 14),
+                              // Distinct disabled style
+                              disabledBackgroundColor: Colors.grey[200],
+                              disabledForegroundColor: Colors.grey[500],
+                            ),
+                          ),
                         ),
-                        onPressed: upcomingBookings.isEmpty
-                            ? null
-                            : () {
-                                Scrollable.ensureVisible(
-                                  _upcomingSectionKey.currentContext!,
-                                  duration: const Duration(milliseconds: 500),
-                                  curve: Curves.easeInOut,
-                                );
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[50],
-                          foregroundColor: Colors.blue[800],
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          textStyle: const TextStyle(fontSize: 14),
-                          // Disable button if no bookings in this section
-                          disabledBackgroundColor: Colors.grey[100],
-                          disabledForegroundColor: Colors.grey[500],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.event, size: 18),
+                            label: Text(
+                              'Upcoming (${upcomingBookings.length})',
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            onPressed: upcomingBookings.isEmpty
+                                ? null
+                                : () {
+                                    Scrollable.ensureVisible(
+                                      _upcomingSectionKey.currentContext!,
+                                      duration: const Duration(milliseconds: 500),
+                                      curve: Curves.easeInOut,
+                                    );
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              // Make the button more distinct
+                              backgroundColor: Colors.blue[100],
+                              foregroundColor: Colors.blue[900],
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              textStyle: const TextStyle(fontSize: 14),
+                              disabledBackgroundColor: Colors.grey[200],
+                              disabledForegroundColor: Colors.grey[500],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
-          ), // Search results count when searching
+          ),
+
         if (isSearching)
           Padding(
             padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 8.0),
@@ -1461,22 +1619,29 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
 
   Widget _buildSectionHeader(String title, int count) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+      padding: const EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0), // More top padding
       child: Row(
         children: [
+          // Add an icon to make it more distinct
+          Icon(
+            title == "Today" ? Icons.today : Icons.date_range,
+            size: 22,
+            color: title == "Today" ? Colors.teal[700] : Colors.blue[700],
+          ),
+          const SizedBox(width: 8),
           Text(
             title,
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: Colors.grey[800],
+              color: title == "Today" ? Colors.teal[800] : Colors.blue[800],
             ),
           ),
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.blue[100],
+              color: title == "Today" ? Colors.teal[100] : Colors.blue[100],
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
@@ -1484,8 +1649,16 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.blue[700],
+                color: title == "Today" ? Colors.teal[700] : Colors.blue[700],
               ),
+            ),
+          ),
+          // Add a line to make the header more distinct
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.only(left: 10),
+              height: 1,
+              color: title == "Today" ? Colors.teal[200] : Colors.blue[200],
             ),
           ),
         ],
@@ -1531,8 +1704,8 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
       elevation: isArrivingTomorrow ? 3 : 2,
       // Add a subtle border for tomorrow's arrivals
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isArrivingTomorrow ? BorderSide(color: Colors.blue[300]!, width: 1.5) : BorderSide.none,
+        borderRadius: BorderRadius.circular(8),
+        side: isArrivingTomorrow ? BorderSide(color: Colors.blue[300]!, width: 1.5) : BorderSide(color: Colors.grey[300]!, width: 0.5),
       ),
       // Add a subtle background color for tomorrow's arrivals
       color: isArrivingTomorrow ? Colors.blue[50] : Colors.white,
@@ -1999,6 +2172,12 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
     });
   }
 
+  void _updateBlackoutDates() {
+    setState(() {
+      _blackoutDates = _getBlackoutDates();
+    });
+  }
+
   List<Booking> _applyFilters(List<Booking> bookings) {
     // Start with all bookings
     List<Booking> filteredList = List.from(bookings);
@@ -2308,6 +2487,45 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
         _filterBookings(currentBookings);
       }
     });
+  }
+
+  Color _getAvailabilityColor() {
+    final availableCount = _roomAvailability.values.where((available) => available).length;
+    final totalCount = _roomAvailability.length;
+
+    if (availableCount == 0) {
+      return Colors.red[50]!;
+    } else if (availableCount < totalCount / 2) {
+      return Colors.orange[50]!;
+    } else {
+      return Colors.green[50]!;
+    }
+  }
+
+  Color _getAvailabilityBorderColor() {
+    final availableCount = _roomAvailability.values.where((available) => available).length;
+    final totalCount = _roomAvailability.length;
+
+    if (availableCount == 0) {
+      return Colors.red[200]!;
+    } else if (availableCount < totalCount / 2) {
+      return Colors.orange[200]!;
+    } else {
+      return Colors.green[200]!;
+    }
+  }
+
+  Color _getAvailabilityTextColor() {
+    final availableCount = _roomAvailability.values.where((available) => available).length;
+    final totalCount = _roomAvailability.length;
+
+    if (availableCount == 0) {
+      return Colors.red[700]!;
+    } else if (availableCount < totalCount / 2) {
+      return Colors.orange[700]!;
+    } else {
+      return Colors.green[700]!;
+    }
   }
 
   bool get _hasActiveFilters => _selectedRoomFilter != null || _dateRangeFilter != null;

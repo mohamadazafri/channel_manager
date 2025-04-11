@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "371806807289",
+    "project_id": "idaman-homestay",
+    "storage_bucket": "idaman-homestay.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:371806807289:android:65a18b70a6b9876ce22e28",
+        "android_client_info": {
+          "package_name": "com.example.channel_manager"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCiTCGZIUDY48THB7ykD93Miku7E7j8y-s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

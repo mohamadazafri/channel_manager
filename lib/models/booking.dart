@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'enums/booking_source.dart';
@@ -58,6 +59,39 @@ class Booking {
       'guest_email': guestEmail,
       'guest_phone': guestPhone,
     };
+  }
+
+  Map<String, dynamic> toFirestore() {
+    return {
+      'id': id,
+      'guest_name': guestName,
+      'check_in': checkIn.toIso8601String(),
+      'check_out': checkOut.toIso8601String(),
+      'source': source.toShortString(),
+      'room_id': roomId,
+      'is_confirmed': isConfirmed,
+      'notes': notes,
+      'guest_email': guestEmail,
+      'guest_phone': guestPhone,
+      'created_at': DateTime.now().toIso8601String(), // Track when this was created in Firestore
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+  }
+
+  static Booking fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Booking(
+      id: doc.id,
+      guestName: data['guest_name'],
+      checkIn: DateTime.parse(data['check_in']),
+      checkOut: DateTime.parse(data['check_out']),
+      source: BookingSourceExtension.fromString(data['source']),
+      roomId: data['room_id'],
+      isConfirmed: data['is_confirmed'] ?? true,
+      notes: data['notes'],
+      guestEmail: data['guest_email'],
+      guestPhone: data['guest_phone'],
+    );
   }
 
   // Check if this booking overlaps with another booking

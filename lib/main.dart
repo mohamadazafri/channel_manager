@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:homestay_booking/services/firebase/firebase_booking_service.dart';
 import 'package:homestay_booking/ui/widgets/floating_bottom_nav.dart';
 import 'services/api/booking_dot_com_service.dart';
 import 'services/api/agoda_service.dart';
@@ -13,9 +15,17 @@ import 'blocs/sync/sync_event.dart';
 import 'ui/screens/booking_calendar_screen.dart';
 import 'ui/screens/dashboard_screen.dart';
 import 'ui/screens/settings_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  FirebaseFirestore.instance.settings = Settings(persistenceEnabled: true, cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED);
 
   // Initialize local database
   final dbService = LocalDatabaseService();
@@ -66,6 +76,9 @@ class MyApp extends StatelessWidget {
           RepositoryProvider<LocalDatabaseService>(
             create: (_) => dbService,
           ),
+          RepositoryProvider<FirebaseBookingService>(
+            create: (_) => FirebaseBookingService(),
+          ),
 
           // Repository
           RepositoryProvider<BookingRepository>(
@@ -74,6 +87,7 @@ class MyApp extends StatelessWidget {
               context.read<AgodaService>(),
               context.read<AirbnbService>(),
               context.read<LocalDatabaseService>(),
+              context.read<FirebaseBookingService>(),
             ),
           ),
 

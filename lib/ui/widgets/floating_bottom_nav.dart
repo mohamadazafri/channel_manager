@@ -13,13 +13,12 @@ class FloatingBottomNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       color: Colors.transparent,
       child: Container(
         height: 72,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(36),
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(36), topRight: Radius.circular(36)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
@@ -69,9 +68,7 @@ class FloatingBottomNavigation extends StatelessWidget {
         children: [
           Icon(
             icon,
-            color: isSelected 
-                ? _getSelectedColor(index) 
-                : Colors.grey[500],
+            color: isSelected ? _getSelectedColor(index) : Colors.grey[500],
             size: 28,
           ),
           const SizedBox(height: 4),
@@ -80,9 +77,7 @@ class FloatingBottomNavigation extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              color: isSelected 
-                  ? _getSelectedColor(index) 
-                  : Colors.grey[600],
+              color: isSelected ? _getSelectedColor(index) : Colors.grey[600],
             ),
           ),
         ],

@@ -10,7 +10,9 @@ class BookingBloc extends Bloc<BookingEvent, BookingState> {
   final BookingRepository _repository;
   late StreamSubscription _bookingsSubscription;
 
-  BookingBloc({required BookingRepository repository}) : _repository = repository, super(BookingInitial()) {
+  BookingBloc({required BookingRepository repository})
+      : _repository = repository,
+        super(BookingInitial()) {
     on<FetchBookings>(_onFetchBookings);
     on<CreateBooking>(_onCreateBooking);
     on<UpdateBooking>(_onUpdateBooking);

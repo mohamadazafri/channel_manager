@@ -17,7 +17,7 @@ class BookingCalendarScreen extends StatefulWidget {
   _BookingCalendarScreenState createState() => _BookingCalendarScreenState();
 }
 
-class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
+class _BookingCalendarScreenState extends State<BookingCalendarScreen> with SingleTickerProviderStateMixin {
   final GlobalKey _todaySectionKey = GlobalKey();
   final GlobalKey _upcomingSectionKey = GlobalKey();
   final GlobalKey _roomsSectionKey = GlobalKey();
@@ -33,6 +33,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
   PickerDateRange? _selectedRange;
   List<Booking> _bookings = [];
   int _selectedTabIndex = 0;
+  late TabController _tabController;
   // Map to track expanded room cards
   Map<String, bool> _expandedRooms = {};
 
@@ -40,7 +41,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
   Map<String, bool> _roomAvailability = {};
 
   // Map to store bookings by room ID for the selected date range
-  Map<String, Booking?> _roomBookings = {};
+  Map<String, List<Booking>> _roomBookings = {};
 
   // Sample room data - would come from your repository
   final List<Map<String, dynamic>> _rooms = [
@@ -52,6 +53,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _dateRangePickerController = DateRangePickerController();
     _dateRangePickerController.selectedRange = PickerDateRange(
       DateTime.now(),
@@ -63,7 +65,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
     for (var room in _rooms) {
       _roomAvailability[room['id']] = true;
       _expandedRooms[room['id']] = false;
-      _roomBookings[room['id']] = null;
+      _roomBookings[room['id']] = [];
     }
 
     // Fetch initial bookings
@@ -74,6 +76,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _dateRangePickerController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -81,166 +84,168 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-        length: 2,
-        child: Scaffold(
-          backgroundColor: Colors.grey[50],
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: Colors.white,
-            title: const Text(
-              'Bookings',
-              style: TextStyle(
-                color: Color(0xFF2E4057),
-                fontWeight: FontWeight.w600,
-                fontSize: 20,
-              ),
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        title: const Text(
+          'Bookings',
+          style: TextStyle(
+            color: Color(0xFF2E4057),
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+          ),
+        ),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.blue[600],
+          labelColor: Colors.blue[700],
+          unselectedLabelColor: Colors.grey[600],
+          tabs: const [
+            Tab(
+              icon: Icon(Icons.calendar_month),
+              text: 'Calendar',
             ),
-            bottom: TabBar(
-              indicatorColor: Colors.blue[600],
-              labelColor: Colors.blue[700],
-              unselectedLabelColor: Colors.grey[600],
-              tabs: const [
-                Tab(
-                  icon: Icon(Icons.calendar_month),
-                  text: 'Calendar',
-                ),
-                Tab(
-                  icon: Icon(Icons.list_alt),
-                  text: 'All Bookings',
-                ),
-              ],
-              onTap: (index) {
-                setState(() {
-                  _selectedTabIndex = index;
-                });
+            Tab(
+              icon: Icon(Icons.list_alt),
+              text: 'All Bookings',
+            ),
+          ],
+          onTap: (index) {
+            setState(() {
+              _selectedTabIndex = index;
+            });
+          },
+        ),
+        actions: [
+          // Only show filter button on All Bookings tab
+          if (_selectedTabIndex == 1)
+            IconButton(
+              icon: const Icon(
+                Icons.filter_list,
+                color: Color(0xFF2E4057),
+              ),
+              tooltip: 'Filter Bookings',
+              onPressed: () {
+                _showFilterDialog();
               },
             ),
-            actions: [
-              // Only show filter button on All Bookings tab
-              if (_selectedTabIndex == 1)
-                IconButton(
-                  icon: const Icon(
-                    Icons.filter_list,
-                    color: Color(0xFF2E4057),
-                  ),
-                  tooltip: 'Filter Bookings',
-                  onPressed: () {
-                    _showFilterDialog();
+        ],
+        iconTheme: const IconThemeData(color: Color(0xFF2E4057)),
+      ),
+      body: BlocConsumer<BookingBloc, BookingState>(
+        listener: (context, state) {
+          if (state is BookingOverlap) {
+            showDialog(
+              context: context,
+              builder: (context) => OverlapAlertDialog(
+                overlappingBookings: state.overlappingBookings,
+              ),
+            );
+          } else if (state is BookingCancelled) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Booking for ${state.booking.guestName} has been cancelled'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          } else if (state is BookingError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(state.message)),
+            );
+          } else if (state is BookingLoaded) {
+            setState(() {
+              _bookings = state.bookings;
+              _updateRoomBookings();
+              _updateBlackoutDates();
+            });
+          } else if (state is BookingCreated) {
+            context.read<BookingBloc>().add(const FetchBookings());
+          }
+        },
+        builder: (context, state) {
+          if (state is BookingInitial || state is BookingLoading) {
+            return Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
+              ),
+            );
+          } else if (state is BookingLoaded) {
+            return TabBarView(
+              controller: _tabController,
+              children: [
+                // Calendar Tab
+                RefreshIndicator(
+                  onRefresh: () async {
+                    context.read<BookingBloc>().add(const FetchBookings());
+                    return await Future.delayed(const Duration(seconds: 1));
                   },
+                  color: Colors.blue[600],
+                  backgroundColor: Colors.white,
+                  strokeWidth: 2.5,
+                  displacement: 40,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        left: 16.0,
+                        right: 16.0,
+                        top: 8.0,
+                        bottom: MediaQuery.of(context).padding.bottom + 100.0,
+                      ),
+                      child: _buildCalendarWithAvailability(),
+                    ),
+                  ),
                 ),
-            ],
-            iconTheme: const IconThemeData(color: Color(0xFF2E4057)),
-          ),
-          body: BlocConsumer<BookingBloc, BookingState>(
-            listener: (context, state) {
-              if (state is BookingOverlap) {
-                showDialog(
-                  context: context,
-                  builder: (context) => OverlapAlertDialog(
-                    overlappingBookings: state.overlappingBookings,
-                  ),
-                );
-              } else if (state is BookingCancelled) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Booking for ${state.booking.guestName} has been cancelled'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else if (state is BookingError) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(state.message)),
-                );
-              } else if (state is BookingLoaded) {
-                setState(() {
-                  _bookings = state.bookings;
-                  _updateRoomBookings();
-                  _updateBlackoutDates();
-                });
-              }
-            },
-            builder: (context, state) {
-              if (state is BookingInitial || state is BookingLoading) {
-                return Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue[600]!),
-                  ),
-                );
-              } else if (state is BookingLoaded) {
-                return TabBarView(
-                  children: [
-                    // Calendar Tab
-                    RefreshIndicator(
-                      onRefresh: () async {
-                        context.read<BookingBloc>().add(const FetchBookings());
-                        return await Future.delayed(const Duration(seconds: 1));
-                      },
-                      color: Colors.blue[600],
-                      backgroundColor: Colors.white,
-                      strokeWidth: 2.5,
-                      displacement: 40,
-                      child: SingleChildScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            left: 16.0,
-                            right: 16.0,
-                            top: 8.0,
-                            bottom: MediaQuery.of(context).padding.bottom + 100.0,
-                          ),
-                          child: _buildCalendarWithAvailability(),
-                        ),
-                      ),
-                    ),
 
-                    // All Bookings Tab
-                    RefreshIndicator(
-                      onRefresh: () async {
-                        context.read<BookingBloc>().add(const FetchBookings());
-                        return await Future.delayed(const Duration(seconds: 1));
-                      },
-                      color: Colors.blue[600],
-                      backgroundColor: Colors.white,
-                      strokeWidth: 2.5,
-                      displacement: 40,
-                      child: _buildBookingsList(state.bookings),
-                    ),
-                  ],
-                );
-              } else {
-                // Existing error state handling...
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Failed to load bookings',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton(
-                        onPressed: () {
-                          context.read<BookingBloc>().add(const FetchBookings());
-                        },
-                        style: ElevatedButton.styleFrom(
-                          textStyle: TextStyle(color: Colors.blue[600]),
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text('RETRY'),
-                      ),
-                    ],
+                // All Bookings Tab
+                RefreshIndicator(
+                  onRefresh: () async {
+                    context.read<BookingBloc>().add(const FetchBookings());
+                    return await Future.delayed(const Duration(seconds: 1));
+                  },
+                  color: Colors.blue[600],
+                  backgroundColor: Colors.white,
+                  strokeWidth: 2.5,
+                  displacement: 40,
+                  child: _buildBookingsList(state.bookings),
+                ),
+              ],
+            );
+          } else {
+            // Existing error state handling...
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Failed to load bookings',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                   ),
-                );
-              }
-            },
-          ),
-        ));
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () {
+                      context.read<BookingBloc>().add(const FetchBookings());
+                    },
+                    style: ElevatedButton.styleFrom(
+                      textStyle: TextStyle(color: Colors.blue[600]),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('RETRY'),
+                  ),
+                ],
+              ),
+            );
+          }
+        },
+      ),
+    );
   }
 
   Widget _buildCalendarWithAvailability() {
@@ -552,12 +557,14 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
             child: Container(
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+                    color: Colors.black.withOpacity(0.10),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
@@ -687,30 +694,40 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                             ),
 
                           // Booking details button (only for booked rooms)
-                          if (!isAvailable && booking != null)
+                          if (!isAvailable && _roomBookings[roomId]?.isNotEmpty == true)
                             Padding(
                               padding: const EdgeInsets.only(top: 12),
-                              child: GestureDetector(
-                                onTap: () {
+                              child: TextButton(
+                                onPressed: () {
                                   setState(() {
-                                    _expandedRooms[roomId] = !isExpanded;
+                                    _selectedTabIndex = 1;
+                                    _selectedRoomFilter = roomId;
+                                    if (_selectedRange != null && _selectedRange!.startDate != null) {
+                                      _dateRangeFilter = DateTimeRange(
+                                        start: _selectedRange!.startDate!,
+                                        end: _selectedRange!.endDate ?? _selectedRange!.startDate!,
+                                      );
+                                    } else {
+                                      _dateRangeFilter = null;
+                                    }
+                                    _isFilterActive = true;
+                                    _updateFilters();
+                                    _tabController.animateTo(1);
                                   });
                                 },
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.blue[700],
+                                  padding: EdgeInsets.zero,
+                                  textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                                ),
                                 child: Row(
+                                  // mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Text(
-                                      isExpanded ? 'Hide details' : 'Show booking details',
-                                      style: TextStyle(
-                                        color: Colors.blue[700],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Icon(
-                                      isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                                      color: Colors.blue[700],
-                                      size: 18,
-                                    ),
+                                    Text('View all ${_roomBookings[roomId]!.length} booking${_roomBookings[roomId]!.length > 1 ? 's' : ''}'),
+                                    // const SizedBox(width: 4),
+                                    // Icon(Icons.chevron_right, color: Colors.blue, size: 20),
                                   ],
                                 ),
                               ),
@@ -720,8 +737,8 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                     ),
                   ),
 
-                  // Expanded details section
-                  if (!isAvailable && isExpanded && booking != null)
+                  // Expanded details section (commented out)
+                  if (!isAvailable && isExpanded && _roomBookings[roomId]?.isNotEmpty == true)
                     Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
@@ -730,7 +747,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                           bottom: Radius.circular(16),
                         ),
                       ),
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -744,82 +761,64 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-
-                          // Details grid
-                          Wrap(
-                            spacing: 24,
-                            runSpacing: 16,
-                            children: [
-                              _buildDetailItem('Guest', booking.guestName),
-                              _buildDetailItem('Check-in', booking.formattedCheckIn),
-                              _buildDetailItem('Check-out', booking.formattedCheckOut),
-                              _buildDetailItem('Source', booking.source.toDisplayString()),
-                              _buildDetailItem('Status', booking.isConfirmed ? 'Confirmed' : 'Pending'),
-                              if (booking.guestEmail != null) _buildDetailItem('Email', booking.guestEmail!),
-                              if (booking.guestPhone != null) _buildDetailItem('Phone', booking.guestPhone!),
-                            ],
-                          ),
-
-                          // Notes section if available
-                          if (booking.notes != null && booking.notes!.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              'Notes',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                                color: Colors.grey[800],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey[200]!),
-                              ),
-                              child: Text(
-                                booking.notes!,
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                            ),
-                          ],
-
-                          // Action buttons
-                          const SizedBox(height: 20),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              OutlinedButton.icon(
-                                icon: const Icon(Icons.edit, size: 16),
-                                label: const Text('Edit'),
-                                onPressed: () => _editBooking(booking),
-                                style: OutlinedButton.styleFrom(
-                                  textStyle: TextStyle(color: Colors.blue[700]),
-                                  side: BorderSide(color: Colors.blue[700]!),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          Column(
+                            children: List.generate(_roomBookings[roomId]!.length, (index) {
+                              final booking = _roomBookings[roomId]![index];
+                              return Container(
+                                margin: EdgeInsets.only(
+                                  bottom: index == _roomBookings[roomId]!.length - 1 ? 0 : 12,
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              OutlinedButton.icon(
-                                icon: const Icon(Icons.delete, size: 16),
-                                label: const Text('Cancel'),
-                                onPressed: () => _showCancellationConfirmation(booking),
-                                style: OutlinedButton.styleFrom(
-                                  textStyle: TextStyle(color: Colors.red[700]),
-                                  side: BorderSide(color: Colors.red[300]!),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.grey[200]!),
                                 ),
-                              ),
-                            ],
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          booking.guestName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: _getBookingSourceColor(booking.source).withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            booking.source.toDisplayString(),
+                                            style: TextStyle(
+                                              color: _getBookingSourceColor(booking.source),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 24,
+                                      runSpacing: 8,
+                                      children: [
+                                        _buildDetailItem('Check-in', booking.formattedCheckIn),
+                                        _buildDetailItem('Check-out', booking.formattedCheckOut),
+                                        if (booking.guestEmail != null) _buildDetailItem('Email', booking.guestEmail!),
+                                        if (booking.guestPhone != null) _buildDetailItem('Phone', booking.guestPhone!),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
                           ),
                         ],
                       ),
@@ -921,7 +920,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
       // If no date range is selected, all rooms are available
       for (var room in _rooms) {
         _roomAvailability[room['id']] = true;
-        _roomBookings[room['id']] = null;
+        _roomBookings[room['id']] = [];
       }
       return;
     }
@@ -929,7 +928,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
     // Reset all rooms to available
     for (var room in _rooms) {
       _roomAvailability[room['id']] = true;
-      _roomBookings[room['id']] = null;
+      _roomBookings[room['id']] = [];
     }
 
     final startDate = _selectedRange!.startDate!;
@@ -940,7 +939,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
       // If the booking overlaps with the selected date range, mark the room as unavailable
       if (!booking.checkIn.isAfter(endDate) && booking.checkOut.isAfter(startDate)) {
         _roomAvailability[booking.roomId] = false;
-        _roomBookings[booking.roomId] = booking;
+        _roomBookings[booking.roomId]?.add(booking);
       }
     }
   }
@@ -1198,9 +1197,85 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
 
     return Column(
       children: [
+        // Quick navigation buttons - only show if we have any filtered bookings
+        if (todayBookings.isNotEmpty || upcomingBookings.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 8.0), // Added more bottom padding
+            child: Padding(
+              padding: const EdgeInsets.all(10.0), // Slightly more padding
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.today, size: 18),
+                          label: Text(
+                            'Today (${todayBookings.length})',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          onPressed: todayBookings.isEmpty
+                              ? null
+                              : () {
+                                  Scrollable.ensureVisible(
+                                    _todaySectionKey.currentContext!,
+                                    duration: const Duration(milliseconds: 500),
+                                    curve: Curves.easeInOut,
+                                  );
+                                },
+                          style: ElevatedButton.styleFrom(
+                            // Make the button more distinct
+                            backgroundColor: Colors.teal[100],
+                            foregroundColor: Colors.teal[900],
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            textStyle: const TextStyle(fontSize: 14),
+                            // Distinct disabled style
+                            disabledBackgroundColor: Colors.grey[200],
+                            disabledForegroundColor: Colors.grey[500],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.event, size: 18),
+                          label: Text(
+                            'Upcoming (${upcomingBookings.length})',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          onPressed: upcomingBookings.isEmpty
+                              ? null
+                              : () {
+                                  Scrollable.ensureVisible(
+                                    _upcomingSectionKey.currentContext!,
+                                    duration: const Duration(milliseconds: 500),
+                                    curve: Curves.easeInOut,
+                                  );
+                                },
+                          style: ElevatedButton.styleFrom(
+                            // Make the button more distinct
+                            backgroundColor: Colors.blue[100],
+                            foregroundColor: Colors.blue[900],
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            textStyle: const TextStyle(fontSize: 14),
+                            disabledBackgroundColor: Colors.grey[200],
+                            disabledForegroundColor: Colors.grey[500],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
         // Search bar
         Padding(
-          padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+          padding: const EdgeInsets.fromLTRB(16.0, 0.0, 16.0, 8.0),
           child: Row(
             children: [
               // Search bar
@@ -1279,7 +1354,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
 // Also, add a filter indicator if filters are active
         if (_isFilterActive)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 8.0),
+            padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 0.0),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -1352,113 +1427,10 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
               ),
             ),
           ),
-        // Quick navigation buttons - only show if we have any filtered bookings
-        if (todayBookings.isNotEmpty || upcomingBookings.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 16.0), // Added more bottom padding
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    spreadRadius: 1,
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                // Add a subtle border to make it stand out
-                border: Border.all(color: Colors.grey[200]!),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10.0), // Slightly more padding
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Add a title to clearly identify this as navigation
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8.0, bottom: 8.0),
-                      child: Text(
-                        "Quick Navigation",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.today, size: 18),
-                            label: Text(
-                              'Today (${todayBookings.length})',
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            onPressed: todayBookings.isEmpty
-                                ? null
-                                : () {
-                                    Scrollable.ensureVisible(
-                                      _todaySectionKey.currentContext!,
-                                      duration: const Duration(milliseconds: 500),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  },
-                            style: ElevatedButton.styleFrom(
-                              // Make the button more distinct
-                              backgroundColor: Colors.teal[100],
-                              foregroundColor: Colors.teal[900],
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              textStyle: const TextStyle(fontSize: 14),
-                              // Distinct disabled style
-                              disabledBackgroundColor: Colors.grey[200],
-                              disabledForegroundColor: Colors.grey[500],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.event, size: 18),
-                            label: Text(
-                              'Upcoming (${upcomingBookings.length})',
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            onPressed: upcomingBookings.isEmpty
-                                ? null
-                                : () {
-                                    Scrollable.ensureVisible(
-                                      _upcomingSectionKey.currentContext!,
-                                      duration: const Duration(milliseconds: 500),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  },
-                            style: ElevatedButton.styleFrom(
-                              // Make the button more distinct
-                              backgroundColor: Colors.blue[100],
-                              foregroundColor: Colors.blue[900],
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              textStyle: const TextStyle(fontSize: 14),
-                              disabledBackgroundColor: Colors.grey[200],
-                              disabledForegroundColor: Colors.grey[500],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
 
         if (isSearching)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 8.0),
+            padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 0.0),
             child: Row(
               children: [
                 Text(
@@ -1506,7 +1478,7 @@ class _BookingCalendarScreenState extends State<BookingCalendarScreen> {
               : ListView(
                   padding: EdgeInsets.only(
                     bottom: MediaQuery.of(context).padding.bottom + 100.0,
-                    top: 8.0,
+                    top: 0.0,
                   ),
                   children: [
                     // Today section
